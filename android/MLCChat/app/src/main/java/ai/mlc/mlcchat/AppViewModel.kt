@@ -2,40 +2,56 @@ package ai.mlc.mlcchat
 
 import ai.mlc.mlcllm.MLCEngine
 import ai.mlc.mlcllm.OpenAIProtocol
+import ai.mlc.mlcllm.OpenAIProtocol.ChatCompletionMessage
+import ai.mlc.mlcllm.OpenAIProtocol.ChatCompletionMessageContent
+import android.app.Activity
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Environment
+import android.util.Base64
+import android.util.Log
 import android.widget.Toast
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.toMutableStateList
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.URL
 import java.nio.channels.Channels
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
-import ai.mlc.mlcllm.OpenAIProtocol.ChatCompletionMessage
-import ai.mlc.mlcllm.OpenAIProtocol.ChatCompletionMessageContent
-import android.app.Activity
-import kotlinx.coroutines.*
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
-import java.io.ByteArrayOutputStream
-import android.util.Base64
-import android.util.Log
+import com.github.houbb.opencc4j.util.ZhConverterUtil
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     val modelList = emptyList<ModelState>().toMutableStateList()
-    val chatState = ChatState()
+
     val modelSampleList = emptyList<ModelRecord>().toMutableStateList()
     private var showAlert = mutableStateOf(false)
     private var alertMessage = mutableStateOf("")
@@ -47,6 +63,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val appDirFile = application.getExternalFilesDir("")
     private val gson = Gson()
     private val modelIdSet = emptySet<String>().toMutableSet()
+
+    val chatState = ChatState()
+
+    val newsService = NewsService(application)
+    var newsItems = mutableStateOf<List<News>>(emptyList())
+        private set
+
+    fun fetchNews() {
+        viewModelScope.launch {
+            try {
+                newsItems.value = newsService.fetchNews(6)
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Error fetching news: ${e.message}")
+            }
+        }
+    }
+
+    fun searchNews(query: String) {
+        viewModelScope.launch {
+            try {
+                println("Searching news with query: $query")
+                newsItems.value = newsService.searchNews(query, 6)
+            } catch (e: Exception) {
+                Log.e("AppViewModel", "Error searching news: ${e.message}")
+            }
+        }
+    }
+
+    fun summarizeNews(news: News): String {
+        var summary = ""
+        chatState.summarizeNews(news)
+        chatState.onResult = { result ->
+            summary = result
+        }
+        return summary
+    }
 
     companion object {
         const val AppConfigFilename = "mlc-app-config.json"
@@ -520,7 +572,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private val executorService = Executors.newSingleThreadExecutor()
         private val viewModelScope = CoroutineScope(Dispatchers.Main + Job())
         private var imageUri: Uri? = null
-        private fun mainResetChat() {
+        var onResult: (String) -> Unit = {}
+        var context: Context = application
+        var summaryCache = context.loadSummaryCache()
+
+        fun mainResetChat() {
             imageUri = null
             executorService.submit {
                 callBackend { engine.reset() }
@@ -530,6 +586,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     switchToReady()
                 }
             }
+        }
+
+        fun mainResetChatSync() {
+            imageUri = null
+            callBackend { engine.reset() }
+            historyMessages = mutableListOf<ChatCompletionMessage>()
+            clearHistory()
+            switchToReady()
         }
 
         private fun clearHistory() {
@@ -695,6 +759,137 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return "data:image/jpg;base64,$imageBase64"
         }
 
+        // Generating summary for news
+        fun summarizeNews(news: News) {
+            require(chatable())
+            // mainResetChat()
+            mainResetChatSync()
+            switchToGenerating()
+
+            // Update UI
+            chatState.appendMessage(MessageRole.System, "請為新聞生成摘要：")
+            chatState.appendMessage(MessageRole.User, news.content)
+
+            // Check if the summary is cached
+            if (summaryCache.containsKey(news.url)) {
+                val cachedSummary = summaryCache[news.url] ?: "（讀取快取失敗）"
+                println("Loaded summary from cache: $cachedSummary")
+                appendMessage(MessageRole.Assistant, cachedSummary)
+                onResult(cachedSummary)
+                return
+            }
+
+
+            // Prepare prompt
+            historyMessages.add(
+                ChatCompletionMessage(
+                    role = OpenAIProtocol.ChatCompletionRole.system,
+                    content = ChatCompletionMessageContent("請為新聞生成摘要：")
+                )
+            )
+            historyMessages.add(
+                ChatCompletionMessage(
+                    role = OpenAIProtocol.ChatCompletionRole.user,
+                    content = ChatCompletionMessageContent(news.content)
+                )
+            )
+
+            chatState.appendMessage(MessageRole.Assistant, "生成中，請稍候...")
+
+            executorService.submit {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val responses = engine.chat.completions.create(
+                        messages = historyMessages,
+                        stream_options = OpenAIProtocol.StreamOptions(include_usage = true)
+                    )
+
+                    var summary = ""
+                    var finishReasonLength = false
+                    var shouldStop = false
+
+                    fun detectRepeats(text: String): Boolean {
+                        val sentences = text.split(Regex("(?<=[。！？.?!])"))
+                            .map { it.trim() }
+                            .filter { it.length > 4 }
+
+                        if (sentences.size < 2) return false
+
+                        val lastSentence = sentences.last()
+                        val priorSentences = sentences.dropLast(1)
+
+                        return priorSentences.any { it == lastSentence }
+                    }
+
+                    for (res in responses) {
+                        if (!callBackend {
+                                for (choice in res.choices) {
+                                    choice.delta.content?.let { content ->
+                                        summary += content.asText()
+                                    }
+                                    choice.finish_reason?.let { reason ->
+                                        if (reason == "length") finishReasonLength = true
+                                    }
+                                }
+
+                                if (detectRepeats(summary)) {
+                                    shouldStop = true
+                                }
+
+                                res.usage?.let { usage ->
+                                    report.value = usage.extra?.asTextLabel() ?: ""
+                                }
+                            }) continue
+
+                        if (shouldStop) break
+                    }
+
+                    if (summary.isNotEmpty()) {
+                        if (finishReasonLength) {
+                            summary += " [輸出因長度限制被截斷...]"
+                        }
+
+                        // Remove repeated tail if any
+                        if (shouldStop) {
+                            val sentences = summary.split(Regex("(?<=[。！？.?!])")).map { it.trim() }
+                            val deduped = mutableListOf<String>()
+                            for (sentence in sentences) {
+                                if (deduped.lastOrNull() == sentence) break
+                                deduped.add(sentence)
+                            }
+                            summary = deduped.joinToString("")
+                        }
+
+                        summary = ZhConverterUtil.toTraditional(summary)
+
+                        updateMessage(MessageRole.Assistant, summary)
+
+                        historyMessages.add(
+                            ChatCompletionMessage(
+                                role = OpenAIProtocol.ChatCompletionRole.assistant,
+                                content = summary
+                            )
+                        )
+
+                        // Save to cache
+                        summaryCache[news.url] = summary
+                        context.saveSummaryCache(summaryCache)
+
+                        switchToReady()
+                        onResult(summary)
+                    } else {
+                        // Remove empty assistant placeholder
+                        if (historyMessages.isNotEmpty()) {
+                            historyMessages.removeAt(historyMessages.size - 1)
+                        }
+                        switchToReady()
+                        onResult("生成失敗，請稍後再試")
+                    }
+
+                    if (modelChatState.value == ModelChatState.Generating) switchToReady()
+                }
+            }
+        }
+
         fun requestGenerate(prompt: String, activity: Activity) {
             require(chatable())
             switchToGenerating()
@@ -814,6 +1009,7 @@ enum class ModelChatState {
 }
 
 enum class MessageRole {
+    System,
     Assistant,
     User
 }
@@ -850,3 +1046,304 @@ data class ParamsRecord(
 data class ParamsConfig(
     @SerializedName("records") val paramsRecords: List<ParamsRecord>
 )
+
+data class NewsResponse(
+    val state: Boolean,
+    val page: String,
+    val end: Boolean,
+    val lists: List<NewsItem>
+)
+
+data class NewsItem(
+    val url: String?,
+    val titleLink: String?,
+    val title: String?,
+    val paragraph: String?,
+    val time: NewsTime?,
+    val view: Int?,
+    val content_level: String?,
+    val story_list: String?
+)
+
+@Serializable
+data class Headline(
+    val title: String,
+    val url: String,
+    val imageUrl: String,
+    val paragraph: String,
+    val time: String,
+    val viewCount: Int,
+    val contentLevel: String,
+    val storyList: String
+)
+
+@Serializable
+data class News(
+    val url: String,
+    val title: String,
+    val time: String,
+    val content: String
+)
+
+@Serializable
+data class NewsTime(
+    val date: String
+)
+
+class NewsService(val context: Context) {
+    private val newsWebsiteUrl = "https://udn.com/api/more"
+    private val timeout = 10L
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(timeout, TimeUnit.SECONDS)
+        .readTimeout(timeout, TimeUnit.SECONDS)
+        .writeTimeout(timeout, TimeUnit.SECONDS)
+        .build()
+    
+    private val json = Json { 
+        ignoreUnknownKeys = true 
+        isLenient = true
+    }
+    
+    var newsCache = context.loadNewsCache()
+
+    suspend fun fetchNews(n: Int, page: Int = 1): List<News> = withContext(Dispatchers.IO) {
+        val headlines = mutableListOf<Headline>()
+        var _page = page
+        
+        // Fetch headlines until we have at least n items
+        while (headlines.size < n) {
+            try {
+                val pageHeadlines = fetchBreakNewsHeadlines(_page)
+                if (pageHeadlines.isEmpty()) break
+                headlines.addAll(pageHeadlines)
+                _page++
+            } catch (e: Exception) {
+                println("Error fetching headlines for page $_page: ${e.message}")
+                break
+            }
+        }
+        
+        // Take only the first n headlines and parse them
+        val selectedHeadlines = headlines.take(n)
+        val newsList = mutableListOf<News>()
+        
+        for (headline in selectedHeadlines) {
+            try {
+                val news = parseNews(headline.url)
+                news?.let { newsList.add(it) }
+            } catch (e: Exception) {
+                println("Error parsing news from ${headline.url}: ${e.message}")
+            }
+        }
+        
+        newsList
+    }
+
+    suspend fun searchNews(searchTerm: String, n: Int, page: Int = 1): List<News> = withContext(Dispatchers.IO) {
+        val headlines = mutableListOf<Headline>()
+        var _page = page
+        
+        // Fetch headlines until we have at least n items
+        while (headlines.size < n) {
+            try {
+                println("Fetching search results for term: $searchTerm, page: $_page")
+                val pageHeadlines = fetchSearchHeadlines(searchTerm, _page)
+                if (pageHeadlines.isEmpty()) {
+                    println("No more search results found for term: $searchTerm on page $_page")
+                    break
+                }
+                headlines.addAll(pageHeadlines)
+                _page++
+            } catch (e: Exception) {
+                println("Error fetching search results for page $_page: ${e.message}")
+                break
+            }
+        }
+        
+        // Take only the first n headlines and parse them
+        val selectedHeadlines = headlines.take(n)
+        val newsList = mutableListOf<News>()
+
+        println("Selected ${selectedHeadlines.size} headlines for parsing")
+        
+        for (headline in selectedHeadlines) {
+            try {
+                val news = parseNews(headline.url)
+                news?.let { newsList.add(it) }
+            } catch (e: Exception) {
+                println("Error parsing news from ${headline.url}: ${e.message}")
+            }
+        }
+        
+        newsList
+    }
+
+    private suspend fun performRequest(params: Map<String, String>? = null): Response = withContext(Dispatchers.IO) {
+        val urlBuilder = newsWebsiteUrl.toHttpUrlOrNull()?.newBuilder()
+            ?: throw IOException("Invalid URL: $newsWebsiteUrl")
+        
+        params?.forEach { (key, value) ->
+            urlBuilder.addQueryParameter(key, value)
+        }
+        
+        val url = urlBuilder.build()
+        println("Performing request to URL: $url with params: $params")
+        
+        val request = Request.Builder()
+            .url(url)
+            .build()
+        
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                val code = response.code
+                throw IOException("Request failed with code: $code")
+            }
+            response
+        } catch (e: IOException) {
+            println("Request failed: ${e.message}")
+            delay(3000) // Wait 3 seconds before retry
+            performRequest(params) // Retry
+        }
+    }
+
+    private suspend fun fetchSearchHeadlines(searchTerm: String, page: Int = 1): List<Headline> {
+        println("Fetching search headlines for term: $searchTerm, page: $page")
+        val params = createSearchParams(page, searchTerm)
+        println("Search params: $params")
+        val response = performRequest(params)
+        return parseHeadlines(response)
+    }
+
+    private suspend fun fetchBreakNewsHeadlines(page: Int): List<Headline> {
+        val params = createNextpageParam(page)
+        val response = performRequest(params)
+        return parseHeadlines(response)
+    }
+
+    private fun createNextpageParam(page: Int): Map<String, String> {
+        return mapOf(
+            "page" to page.toString(),
+            "id" to "nextpage",
+            "channelId" to "1",
+            "type" to "breaknews"
+        )
+    }
+
+    private fun createSearchParams(page: Int, searchTerm: String): Map<String, String> {
+        return mapOf(
+            "page" to page.toString(),
+            "id" to "search:$searchTerm",
+            "channelId" to "2",
+            "type" to "searchword"
+        )
+    }
+
+    private fun parseHeadlines(response: Response): List<Headline> {
+        return try {
+            val jsonString = response.body?.string() ?: return emptyList()
+            val gson = Gson()
+            val newsResponse = gson.fromJson(jsonString, NewsResponse::class.java)
+            
+            newsResponse.lists.map { item ->
+                Headline(
+                    title = item.title ?: "",
+                    url = if (item.titleLink?.startsWith("http") == true) item.titleLink else "https://udn.com${item.titleLink ?: ""}",
+                    imageUrl = item.url ?: "",
+                    paragraph = item.paragraph ?: "",
+                    time = item.time?.date ?: "",
+                    viewCount = item.view ?: 0,
+                    contentLevel = item.content_level ?: "",
+                    storyList = item.story_list ?: ""
+                )
+            }
+        } catch (e: Exception) {
+            println("Failed to parse JSON response: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private suspend fun request(url: String, params: Map<String, String>? = null): Response = withContext(Dispatchers.IO) {
+        val urlBuilder = url.toHttpUrlOrNull()?.newBuilder()
+            ?: throw IOException("Invalid URL: $url")
+        
+        params?.forEach { (key, value) ->
+            urlBuilder.addQueryParameter(key, value)
+        }
+        
+        val finalUrl = urlBuilder.build()
+        val request = Request.Builder()
+            .url(finalUrl)
+            .build()
+        
+        try {
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                val code = response.code
+                throw IOException("Request failed with code: $code")
+            }
+            response
+        } catch (e: IOException) {
+            println("Request failed: ${e.message}")
+            throw IOException("Request failed", e)
+        }
+    }
+
+    suspend fun parseNews(url: String): News? = withContext(Dispatchers.IO) {
+        // if cached news exists, return it
+        if (newsCache.containsKey(url)) {
+            println("Loaded news from cache: $url")
+            return@withContext newsCache[url]
+        }
+        try {
+            val response = makeRequest(url)
+            val body = response.body ?: return@withContext null
+            val html = body.string()
+            val soup: Document = Jsoup.parse(html, url)
+            val news = extractNews(soup, url)
+            if (news != null) {
+                println("Parsed news article from URL: $url")
+                newsCache[url] = news // save to cache
+                context.saveNewsCache(newsCache) // persist cache
+            }
+            news
+        } catch (e: Exception) {
+            println("Error parsing news from $url: ${e.message}")
+            null
+        }
+    }
+
+    private fun makeRequest(url: String): okhttp3.Response {
+        val request = Request.Builder().url(url).build()
+        return client.newCall(request).execute()
+    }
+
+    private fun extractNews(soup: Document, url: String): News? {
+        return try {
+            val articleTitle = soup.selectFirst("h1.article-content__title")?.text()
+                ?: return null
+            
+            val time = soup.selectFirst("time.article-content__time")?.text()
+                ?: return null
+            
+            val contentSection = soup.selectFirst("section.article-content__editor")
+                ?: return null
+            
+            val paragraphs = contentSection.select("p")
+            val content = paragraphs
+                .map { it.text() }
+                .filter { it.trim().isNotEmpty() && !it.contains("▪") }
+                .joinToString(" ")
+            
+            News(
+                url = url,
+                title = articleTitle,
+                time = time,
+                content = content
+            )
+        } catch (e: Exception) {
+            println("Failed to extract news from: $url\n${e.message}")
+            null
+        }
+    }
+}

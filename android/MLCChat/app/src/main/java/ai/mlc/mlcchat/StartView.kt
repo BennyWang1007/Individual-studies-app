@@ -35,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -54,6 +55,16 @@ fun StartView(
     appViewModel: AppViewModel
 ) {
     val localFocusManager = LocalFocusManager.current
+    // Automatically navigate if there's only one model and it's finished
+    LaunchedEffect(appViewModel.modelList) {
+        val readyModel = appViewModel.modelList.singleOrNull { it.modelInitState.value == ModelInitState.Finished }
+        if (readyModel != null) {
+            readyModel.startChat()
+            navController.navigate("news") {
+                popUpTo("start") { inclusive = true } // prevent back navigation to model list
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -175,7 +186,7 @@ fun ModelView(
                 IconButton(
                     onClick = {
                         modelState.startChat()
-                        navController.navigate("chat")
+                        navController.navigate("news")
                     },
                     enabled = appViewModel.chatState.interruptable(),
                     modifier = Modifier

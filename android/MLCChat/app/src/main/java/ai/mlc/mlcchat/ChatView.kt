@@ -241,7 +241,7 @@ fun MessageView(messageData: MessageData, activity: Activity?) {
                 } else {
                     Text(
                         text = messageData.text,
-                        textAlign = TextAlign.Right,
+                        textAlign = TextAlign.Left,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier
                             .wrapContentWidth()
