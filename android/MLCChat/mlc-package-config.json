@@ -2,7 +2,7 @@
     "device": "android",
     "model_list": [
         {
-            "model": "HF://mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+            "model": "HF://BennyWang/Qwen2.5-0.5B-Instruct-cl-24233news-5stg-v4-lr_adj-q4f16_1-MLC",
             "model_id": "Qwen2.5-0.5B-Instruct-5stg_v4-l_q4f16_1",
             "estimated_vram_bytes": 2000000000,
             "model_lib": "qwen2_5stg_v4_q4f16_1",
