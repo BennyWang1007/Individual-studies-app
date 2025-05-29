@@ -151,7 +151,7 @@ fun ChatView(
 fun MessageView(messageData: MessageData, activity: Activity?) {
     // default render the Assistant text as MarkdownText
     var useMarkdown by remember { mutableStateOf(true) }
-    var localActivity : MainActivity = activity as MainActivity
+    val localActivity : MainActivity = activity as MainActivity
     SelectionContainer {
         if (messageData.role == MessageRole.Assistant) {
             Column {

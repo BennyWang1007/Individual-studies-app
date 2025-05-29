@@ -572,11 +572,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private val executorService = Executors.newSingleThreadExecutor()
         private val viewModelScope = CoroutineScope(Dispatchers.Main + Job())
         private var imageUri: Uri? = null
+        private var context: Context = application
+        private var summaryCache = context.loadSummaryCache()
         var onResult: (String) -> Unit = {}
-        var context: Context = application
-        var summaryCache = context.loadSummaryCache()
 
-        fun mainResetChat() {
+        private fun mainResetChat() {
             imageUri = null
             executorService.submit {
                 callBackend { engine.reset() }
@@ -588,7 +588,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        fun mainResetChatSync() {
+        private fun mainResetChatSync() {
             imageUri = null
             callBackend { engine.reset() }
             historyMessages = mutableListOf<ChatCompletionMessage>()
@@ -1104,21 +1104,21 @@ class NewsService(val context: Context) {
         isLenient = true
     }
     
-    var newsCache = context.loadNewsCache()
+    private var newsCache = context.loadNewsCache()
 
     suspend fun fetchNews(n: Int, page: Int = 1): List<News> = withContext(Dispatchers.IO) {
         val headlines = mutableListOf<Headline>()
-        var _page = page
+        var curPage = page
         
         // Fetch headlines until we have at least n items
         while (headlines.size < n) {
             try {
-                val pageHeadlines = fetchBreakNewsHeadlines(_page)
+                val pageHeadlines = fetchBreakNewsHeadlines(curPage)
                 if (pageHeadlines.isEmpty()) break
                 headlines.addAll(pageHeadlines)
-                _page++
+                curPage++
             } catch (e: Exception) {
-                println("Error fetching headlines for page $_page: ${e.message}")
+                println("Error fetching headlines for page $curPage: ${e.message}")
                 break
             }
         }
@@ -1141,21 +1141,21 @@ class NewsService(val context: Context) {
 
     suspend fun searchNews(searchTerm: String, n: Int, page: Int = 1): List<News> = withContext(Dispatchers.IO) {
         val headlines = mutableListOf<Headline>()
-        var _page = page
+        var curPage = page
         
         // Fetch headlines until we have at least n items
         while (headlines.size < n) {
             try {
-                println("Fetching search results for term: $searchTerm, page: $_page")
-                val pageHeadlines = fetchSearchHeadlines(searchTerm, _page)
+                println("Fetching search results for term: $searchTerm, page: $curPage")
+                val pageHeadlines = fetchSearchHeadlines(searchTerm, curPage)
                 if (pageHeadlines.isEmpty()) {
-                    println("No more search results found for term: $searchTerm on page $_page")
+                    println("No more search results found for term: $searchTerm on page $curPage")
                     break
                 }
                 headlines.addAll(pageHeadlines)
-                _page++
+                curPage++
             } catch (e: Exception) {
-                println("Error fetching search results for page $_page: ${e.message}")
+                println("Error fetching search results for page $curPage: ${e.message}")
                 break
             }
         }
@@ -1248,7 +1248,11 @@ class NewsService(val context: Context) {
             newsResponse.lists.map { item ->
                 Headline(
                     title = item.title ?: "",
-                    url = if (item.titleLink?.startsWith("http") == true) item.titleLink else "https://udn.com${item.titleLink ?: ""}",
+                    url = if (item.titleLink?.startsWith("http") == true) {
+                        item.titleLink.substringBefore("?")
+                    } else {
+                        "https://udn.com${item.titleLink ?: ""}".substringBefore("?")
+                    },
                     imageUrl = item.url ?: "",
                     paragraph = item.paragraph ?: "",
                     time = item.time?.date ?: "",
@@ -1263,33 +1267,7 @@ class NewsService(val context: Context) {
         }
     }
 
-    private suspend fun request(url: String, params: Map<String, String>? = null): Response = withContext(Dispatchers.IO) {
-        val urlBuilder = url.toHttpUrlOrNull()?.newBuilder()
-            ?: throw IOException("Invalid URL: $url")
-        
-        params?.forEach { (key, value) ->
-            urlBuilder.addQueryParameter(key, value)
-        }
-        
-        val finalUrl = urlBuilder.build()
-        val request = Request.Builder()
-            .url(finalUrl)
-            .build()
-        
-        try {
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                val code = response.code
-                throw IOException("Request failed with code: $code")
-            }
-            response
-        } catch (e: IOException) {
-            println("Request failed: ${e.message}")
-            throw IOException("Request failed", e)
-        }
-    }
-
-    suspend fun parseNews(url: String): News? = withContext(Dispatchers.IO) {
+    private suspend fun parseNews(url: String): News? = withContext(Dispatchers.IO) {
         // if cached news exists, return it
         if (newsCache.containsKey(url)) {
             println("Loaded news from cache: $url")
