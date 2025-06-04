@@ -2,14 +2,9 @@
     "device": "android",
     "model_list": [
         {
-            "model": "HF://BennyWang/Qwen2.5-0.5B-Instruct-cl-24233news-5stg-v4-lr_adj-q4f16_1-MLC",
-            "model_id": "Qwen2.5-0.5B-Instruct-5stg_v4-l_q4f16_1",
-            "estimated_vram_bytes": 2000000000,
-            "model_lib": "qwen2_5stg_v4_q4f16_1",
-            "bundle_weight": true
+            "model": "HF://mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+            "model_id": "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+            "estimated_vram_bytes": 2000000000
         }
-    ],
-    "model_lib_path_for_prepare_libs": {
-        "qwen2_5stg_v4_q4f16_1": "../../dist/libs/Qwen2.5-0.5B-Instruct-cl_24233news_5stg_v4-lr_adj-q4f16_1-android.tar"
-    }
+    ]
 }

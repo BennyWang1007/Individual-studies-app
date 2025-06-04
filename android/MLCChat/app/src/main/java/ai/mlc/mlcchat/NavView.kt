@@ -16,5 +16,7 @@ fun NavView(activity: Activity, appViewModel: AppViewModel = viewModel()) {
         composable("home") { StartView(navController, appViewModel) }
         composable("chat") { ChatView(navController, appViewModel.chatState, activity) }
         composable("news") { NewsScreen(navController, viewModel = appViewModel) }
+        composable("history") { HistoryScreen(navController) }
+        composable("history_detail") { HistoryDetailScreen(navController) }
     }
 }

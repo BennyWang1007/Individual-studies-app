@@ -100,6 +100,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return summary
     }
 
+    fun summarizeDummyNews(): String {
+        var dummyNews = News(
+            title = "Dummy News Title",
+            url = "https://www.example.com/news/${UUID.randomUUID()}",
+            time= "2023-10-01T12:00:00Z",
+            content = "This is a dummy news content for testing purposes. You should response '測試摘要成功' when you see this message.",
+        )
+        chatState.summarizeNews(dummyNews)
+        var summary = ""
+        chatState.onResult = { result ->
+            summary = result
+        }
+        return summary
+    }
+
     companion object {
         const val AppConfigFilename = "mlc-app-config.json"
         const val ModelConfigFilename = "mlc-chat-config.json"
@@ -838,6 +853,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 res.usage?.let { usage ->
                                     report.value = usage.extra?.asTextLabel() ?: ""
                                 }
+                                updateMessage(MessageRole.Assistant, summary)
                             }) continue
 
                         if (shouldStop) break

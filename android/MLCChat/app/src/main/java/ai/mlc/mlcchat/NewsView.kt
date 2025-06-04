@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,6 +59,14 @@ fun NewsScreen(
                     }
                 },
                 actions = {
+                    // Chat button
+                    IconButton(onClick = {
+                        navController.navigate("chat")
+                    }) {
+                        Icon(Icons.Outlined.Chat, contentDescription = "Go to Chat")
+                    }
+
+                    // Search logic
                     if (!isSearching) {
                         IconButton(onClick = { isSearching = true }) {
                             Icon(Icons.Outlined.Search, contentDescription = "Search")
@@ -76,6 +87,22 @@ fun NewsScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    icon = { Icon(Icons.Outlined.List, contentDescription = "News") },
+                    label = { Text("新聞") },
+                    selected = true,
+                    onClick = { navController.navigate("news") }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Outlined.History, contentDescription = "History") },
+                    label = { Text("歷史") },
+                    selected = false,
+                    onClick = { navController.navigate("history") }
+                )
+            }
         }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
