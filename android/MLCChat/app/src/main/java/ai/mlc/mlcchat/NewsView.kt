@@ -17,6 +17,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,17 +35,27 @@ fun NewsScreen(
     var isSearched by remember { mutableStateOf(false) }
     var keyword by remember { mutableStateOf("") }
 
+    val newsList by viewModel.newsItems
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
     LaunchedEffect(Unit) {
-        Toast.makeText(context,"Fetching latest news...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Fetching latest news...", Toast.LENGTH_SHORT).show()
         viewModel.fetchNews()
     }
 
-    val newsList by viewModel.newsItems
+    // Detect when near bottom to load more
+    LaunchedEffect(newsList.size, listState.firstVisibleItemIndex, listState.layoutInfo.totalItemsCount) {
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val totalItems = listState.layoutInfo.totalItemsCount
+        if (lastVisibleIndex >= totalItems - 2 && !viewModel.isLoading.value) {
+            // Near bottom
+            viewModel.fetchNews()
+        }
+    }
 
     fun clickOnNews(news: News) {
-        // Toast.makeText(context, "Clicked on: ${news.title}", Toast.LENGTH_SHORT).show()
-        // println("Goto chat with model: ${viewModel.chatState.modelName}")
-        val _summarization: String = viewModel.summarizeNews(news)
+        viewModel.summarizeNews(news)
         navController.navigate("chat")
     }
 
@@ -105,15 +122,21 @@ fun NewsScreen(
             }
         }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .padding(innerPadding)
+                .padding(16.dp)
+        ) {
             if (newsList.isEmpty()) {
-                if (isSearched) {
-                    Text("沒有找到相關新聞", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    Text("載入中...", style = MaterialTheme.typography.bodyMedium)
+                item {
+                    Text(
+                        text = if (isSearched) "沒有找到相關新聞" else "載入中...",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             } else {
-                newsList.forEach { news ->
+                items(newsList) { news ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -125,6 +148,13 @@ fun NewsScreen(
                             Text(news.title, style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(4.dp))
                             Text(news.content.take(50) + "...", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                if (viewModel.isLoading.value) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
                         }
                     }
                 }

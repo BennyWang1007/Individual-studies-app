@@ -69,14 +69,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val newsService = NewsService(application)
     var newsItems = mutableStateOf<List<News>>(emptyList())
         private set
+    var isLoading = mutableStateOf(false)
 
     fun fetchNews() {
+        if (isLoading.value) return
+        isLoading.value = true
+
         viewModelScope.launch {
             try {
-                newsItems.value = newsService.fetchNews(6)
+                val newNews = newsService.fetchNews(200)
+                val currentList = newsItems.value ?: emptyList()
+                // Combine new news with existing news, avoiding duplicates
+                val combinedNews = (currentList + newNews).distinctBy { it.url }
+                newsItems.value = combinedNews
             } catch (e: Exception) {
                 Log.e("AppViewModel", "Error fetching news: ${e.message}")
             }
+            isLoading.value = false
         }
     }
 
@@ -1121,26 +1130,30 @@ class NewsService(val context: Context) {
     }
     
     private var newsCache = context.loadNewsCache()
+    private var curNewsPage = 1
 
-    suspend fun fetchNews(n: Int, page: Int = 1): List<News> = withContext(Dispatchers.IO) {
-        val headlines = mutableListOf<Headline>()
-        var curPage = page
+    suspend fun fetchNews(n: Int, page: Int = curNewsPage): List<News> = withContext(Dispatchers.IO) {
+        // val headlines = mutableListOf<Headline>()
+        // var curPage = page
         
-        // Fetch headlines until we have at least n items
-        while (headlines.size < n) {
-            try {
-                val pageHeadlines = fetchBreakNewsHeadlines(curPage)
-                if (pageHeadlines.isEmpty()) break
-                headlines.addAll(pageHeadlines)
-                curPage++
-            } catch (e: Exception) {
-                println("Error fetching headlines for page $curPage: ${e.message}")
-                break
-            }
-        }
+        // // Fetch headlines until we have at least n items
+        // while (headlines.size < n) {
+        //     try {
+        //         val pageHeadlines = fetchBreakNewsHeadlines(curPage)
+        //         if (pageHeadlines.isEmpty()) break
+        //         headlines.addAll(pageHeadlines)
+        //         curPage++
+        //     } catch (e: Exception) {
+        //         println("Error fetching headlines for page $curPage: ${e.message}")
+        //         break
+        //     }
+        // }
         
         // Take only the first n headlines and parse them
-        val selectedHeadlines = headlines.take(n)
+        // val selectedHeadlines = headlines.take(n)
+
+        val selectedHeadlines = fetchBreakNewsHeadlines(page).take(n)
+        curNewsPage = page + 1
         val newsList = mutableListOf<News>()
         
         for (headline in selectedHeadlines) {
