@@ -1,3 +1,4 @@
 <resources>
-    <string name="app_name">MLCChat</string>
+    <string name="app_name">新聞摘要AI</string>
+    <string name="full_app_name">中文新聞摘要AI</string>
 </resources>
