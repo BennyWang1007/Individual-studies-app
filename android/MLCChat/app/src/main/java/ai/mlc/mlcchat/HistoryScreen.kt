@@ -18,8 +18,16 @@ import androidx.navigation.NavController
 @Composable
 fun HistoryScreen(navController: NavController) {
     val context = LocalContext.current
-    val newsCache = remember { context.loadNewsCache() }
-    val summaryCache = remember { context.loadSummaryCache() }
+
+    // Load news cache asynchronously
+    val newsCache by produceState<Map<String, News>>(initialValue = emptyMap()) {
+        value = context.loadNewsCache()
+    }
+
+    // Load summary cache asynchronously
+    val summaryCache by produceState<Map<String, String>>(initialValue = emptyMap()) {
+        value = context.loadSummaryCache()
+    }
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
     Scaffold(
@@ -85,7 +93,7 @@ fun HistoryScreen(navController: NavController) {
                                     Text(news.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(Modifier.height(4.dp))
                                     val expanded = expandedStates[newsId] == true
-                                    val previewText = if (expanded) cleanedSummary else "摘要：\n" + cleanedSummary.take(50) + "..."
+                                    val previewText = if (expanded) "摘要：" + cleanedSummary else "摘要：" + cleanedSummary.take(50) + "..."
                                     Text(previewText, style = MaterialTheme.typography.bodySmall)
                                 }
                             }

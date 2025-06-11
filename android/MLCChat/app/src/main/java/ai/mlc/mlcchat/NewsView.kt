@@ -31,6 +31,9 @@ fun NewsScreen(
     navController: NavController, viewModel: AppViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val cachedNews by produceState<List<News>>(initialValue = emptyList()) {
+        value = context.loadNewsCache().values.toList()
+    }
     var isSearching by remember { mutableStateOf(false) }
     var isSearched by remember { mutableStateOf(false) }
     var keyword by remember { mutableStateOf("") }
@@ -39,9 +42,14 @@ fun NewsScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    // Only fetch news after cached news loaded
+    LaunchedEffect(cachedNews) {
+        if (cachedNews.isNotEmpty() && newsList.isEmpty()) {
+            // Show cached news first
+            viewModel.loadCachedNews(cachedNews)
+        }
         Toast.makeText(context, "Fetching latest news...", Toast.LENGTH_SHORT).show()
-        viewModel.fetchNews()
+        viewModel.fetchNews()  // fetch latest news after cache shown
     }
 
     // Detect when near bottom to load more

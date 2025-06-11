@@ -89,6 +89,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadCachedNews(cached: List<News>) {
+        newsItems.value = cached.toMutableList()
+    }
+
     fun searchNews(query: String) {
         viewModelScope.launch {
             try {
@@ -131,8 +135,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val ModelUrlSuffix = "resolve/main/"
     }
 
+    private val viewModelScope = CoroutineScope(Dispatchers.Main + Job())
+
     init {
         loadAppConfig()
+        viewModelScope.launch {
+            newsService.initialize()
+        }
     }
 
     fun isShowingAlert(): Boolean {
@@ -597,8 +606,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private val viewModelScope = CoroutineScope(Dispatchers.Main + Job())
         private var imageUri: Uri? = null
         private var context: Context = application
-        private var summaryCache = context.loadSummaryCache()
+        private var summaryCache: MutableMap<String, String> = mutableMapOf()
         var onResult: (String) -> Unit = {}
+
+        init {
+            viewModelScope.launch {
+                summaryCache = context.loadSummaryCache()
+                println("Summary cache loaded: ${summaryCache.size} entries")
+            }
+        }
 
         private fun mainResetChat() {
             imageUri = null
@@ -822,6 +838,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             executorService.submit {
                 viewModelScope.launch(Dispatchers.IO) {
+                    delay(1500)
                     val responses = engine.chat.completions.create(
                         messages = historyMessages,
                         stream_options = OpenAIProtocol.StreamOptions(include_usage = true)
@@ -1129,8 +1146,13 @@ class NewsService(val context: Context) {
         isLenient = true
     }
     
-    private var newsCache = context.loadNewsCache()
+    private var newsCache: MutableMap<String, News> = mutableMapOf()
     private var curNewsPage = 1
+
+    suspend fun initialize() {
+        newsCache = context.loadNewsCache()
+        println("News cache loaded: ${newsCache.size} entries")
+    }
 
     suspend fun fetchNews(n: Int, page: Int = curNewsPage): List<News> = withContext(Dispatchers.IO) {
         // val headlines = mutableListOf<Headline>()
