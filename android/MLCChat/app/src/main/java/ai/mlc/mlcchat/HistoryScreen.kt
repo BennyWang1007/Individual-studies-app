@@ -56,6 +56,8 @@ fun HistoryScreen(navController: NavController) {
                 }
             } else {
                 summaryCache.forEach { (newsId, summary) ->
+                    // remove 新聞摘要：\n in the front if it exists
+                    val cleanedSummary = summary.removePrefix("新聞摘要：\n").trim()
                     val news = newsCache[newsId]
                     if (news != null) {
                         item {
@@ -72,7 +74,7 @@ fun HistoryScreen(navController: NavController) {
                                                 set("title", news.title)
                                                 set("time", news.time)
                                                 set("content", news.content)
-                                                set("summary", summary)
+                                                set("summary", cleanedSummary)
                                             }
                                             navController.navigate("history_detail")
                                         }
@@ -83,7 +85,7 @@ fun HistoryScreen(navController: NavController) {
                                     Text(news.title, style = MaterialTheme.typography.titleMedium)
                                     Spacer(Modifier.height(4.dp))
                                     val expanded = expandedStates[newsId] == true
-                                    val previewText = if (expanded) summary else summary.take(50) + "..."
+                                    val previewText = if (expanded) cleanedSummary else "摘要：\n" + cleanedSummary.take(50) + "..."
                                     Text(previewText, style = MaterialTheme.typography.bodySmall)
                                 }
                             }

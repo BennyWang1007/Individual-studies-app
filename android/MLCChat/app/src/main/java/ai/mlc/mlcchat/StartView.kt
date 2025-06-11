@@ -56,10 +56,10 @@ fun StartView(
 ) {
     val localFocusManager = LocalFocusManager.current
     // Automatically navigate if there's only one model and it's finished
-    LaunchedEffect(appViewModel.modelList) {
-        val readyModel = appViewModel.modelList.singleOrNull { it.modelInitState.value == ModelInitState.Finished }
-        if (readyModel != null) {
-            readyModel.startChat()
+    val finishedModel = appViewModel.modelList.firstOrNull { it.modelInitState.value == ModelInitState.Finished }
+    LaunchedEffect(finishedModel) {
+        if (finishedModel != null) {
+            finishedModel.startChat()
             navController.navigate("news") {
                 popUpTo("start") { inclusive = true } // prevent back navigation to model list
             }

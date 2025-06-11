@@ -792,7 +792,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             // Update UI
             chatState.appendMessage(MessageRole.System, "請為新聞生成摘要：")
-            chatState.appendMessage(MessageRole.User, news.content)
+            chatState.appendMessage(MessageRole.User, "新聞：\n" + news.content)
 
             // Check if the summary is cached
             if (summaryCache.containsKey(news.url)) {
@@ -814,7 +814,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             historyMessages.add(
                 ChatCompletionMessage(
                     role = OpenAIProtocol.ChatCompletionRole.user,
-                    content = ChatCompletionMessageContent(news.content)
+                    content = ChatCompletionMessageContent("新聞：\n" + news.content)
                 )
             )
 
