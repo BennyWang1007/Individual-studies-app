@@ -43,6 +43,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URL
 import java.nio.channels.Channels
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -80,8 +82,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val newNews = newsService.fetchNews(200)
                 val currentList = newsItems.value ?: emptyList()
                 // Combine new news with existing news, avoiding duplicates
-                val combinedNews = (currentList + newNews).distinctBy { it.url }
-                newsItems.value = combinedNews
+                val combinedNews = (newNews + currentList).distinctBy { it.url }
+                // Sort combined news by time descending
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                val sortedNews = combinedNews.sortedByDescending { news ->
+                    try {
+                        dateFormat.parse(news.time)?.time ?: 0L
+                    } catch (e: Exception) {
+                        0L
+                    }
+                }
+                newsItems.value = sortedNews
             } catch (e: Exception) {
                 Log.e("AppViewModel", "Error fetching news: ${e.message}")
             }

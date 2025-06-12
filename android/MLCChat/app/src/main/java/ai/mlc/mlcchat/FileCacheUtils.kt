@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -33,7 +35,7 @@ suspend fun downloadFile(url: String): String? {
     }
 }
 
-suspend fun Context.loadSummaryCache(): MutableMap<String, String> {
+suspend fun Context._loadSummaryCache(): MutableMap<String, String> {
     println("Loading summary cache from ${getNewsSummaryCacheFile().absolutePath}")
     val file = getNewsSummaryCacheFile()
     if (!file.exists()) {
@@ -59,6 +61,43 @@ suspend fun Context.loadSummaryCache(): MutableMap<String, String> {
     }
 }
 
+suspend fun Context.loadSummaryCache(): MutableMap<String, String> {
+    val summaryCache = _loadSummaryCache()
+    val newsCache = loadNewsCache()
+
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
+    // Convert entries into a list with timestamp (if found)
+    val entriesWithTime = summaryCache.entries.map { entry ->
+        val url = entry.key
+        val summary = entry.value
+
+        val newsTime = newsCache[url]?.time
+        val timestamp = try {
+            if (newsTime != null) {
+                dateFormat.parse(newsTime)?.time
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        Triple(url, summary, timestamp)
+    }
+
+    // Sort: first by timestamp descending, then nulls last
+    val sorted = entriesWithTime.sortedWith(
+        compareByDescending<Triple<String, String, Long?>> { it.third }
+            .thenBy { it.first }  // optional: stable sorting for same timestamp
+    )
+
+    // Build sorted map
+    val sortedMap = sorted.associate { it.first to it.second }.toMutableMap()
+
+    return sortedMap
+}
+
 suspend fun Context.loadNewsCache(): MutableMap<String, News> {
     println("Loading news cache from ${loadNewsCacheFile().absolutePath}")
     val file = loadNewsCacheFile()
@@ -79,7 +118,19 @@ suspend fun Context.loadNewsCache(): MutableMap<String, News> {
     return try {
         val json = file.readText()
         val type = object : TypeToken<Map<String, News>>() {}.type
-        Gson().fromJson<Map<String, News>>(json, type).toMutableMap()
+        val map = Gson().fromJson<Map<String, News>>(json, type).toMutableMap()
+
+        // Sort the map by time descending
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        val sorted = map.entries.sortedByDescending { entry ->
+            try {
+                dateFormat.parse(entry.value.time)?.time ?: 0L
+            } catch (e: Exception) {
+                0L  // fallback if parsing fails
+            }
+        }.associate { it.toPair() }.toMutableMap()
+
+        sorted
     } catch (e: Exception) {
         mutableMapOf()
     }
